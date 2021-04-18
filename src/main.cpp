@@ -4,9 +4,16 @@
 #include <sml/sml_file.h>
 #include "Sensor.h"
 #include <IotWebConf.h>
+#include <IotWebConfUsing.h>
 #include "MqttPublisher.h"
 #include "EEPROM.h"
 #include <ESP8266WiFi.h>
+
+#ifdef ESP8266
+# include <ESP8266HTTPUpdateServer.h>
+#elif defined(ESP32)
+# include <IotWebConfESP32HTTPUpdateServer.h>
+#endif
 
 std::list<Sensor*> *sensors = new std::list<Sensor*>();
 
@@ -15,19 +22,28 @@ void configSaved();
 
 DNSServer dnsServer;
 WebServer server(80);
+
+#ifdef ESP8266
+ESP8266HTTPUpdateServer httpUpdater;
+#elif defined(ESP32)
 HTTPUpdateServer httpUpdater;
+#endif
+
 WiFiClient net;
 
 MqttConfig mqttConfig;
 MqttPublisher publisher;
 
 IotWebConf iotWebConf(WIFI_AP_SSID, &dnsServer, &server, WIFI_AP_DEFAULT_PASSWORD, CONFIG_VERSION);
-IotWebConfParameter params[] = {
-	IotWebConfParameter("MQTT server", "mqttServer", mqttConfig.server, sizeof(mqttConfig.server), "text", NULL, mqttConfig.server, NULL, true),
-	IotWebConfParameter("MQTT port", "mqttPort", mqttConfig.port, sizeof(mqttConfig.port), "text", NULL, mqttConfig.port, NULL, true),
-	IotWebConfParameter("MQTT username", "mqttUsername", mqttConfig.username, sizeof(mqttConfig.username), "text", NULL, mqttConfig.username, NULL, true),
-	IotWebConfParameter("MQTT password", "mqttPassword", mqttConfig.password, sizeof(mqttConfig.password), "password", NULL, mqttConfig.password, NULL, true),
-	IotWebConfParameter("MQTT topic", "mqttTopic", mqttConfig.topic, sizeof(mqttConfig.topic), "text", NULL, mqttConfig.topic, NULL, true)};
+
+IotWebConfParameterGroup paramgMqtt ("MQTT", "MQTT");
+
+iotwebconf::TextParameter paramMqttServer ("Server", "mqttServer", mqttConfig.server, sizeof(mqttConfig.server));
+iotwebconf::TextParameter paramMqttPort ("Port", "mqttPort", mqttConfig.port, sizeof(mqttConfig.port));
+iotwebconf::TextParameter paramMqttUsername ("Username", "mqttUsername", mqttConfig.username, sizeof(mqttConfig.username));
+iotwebconf::TextParameter paramMqttPassword ("Password", "mqttPassword", mqttConfig.password, sizeof(mqttConfig.password));
+iotwebconf::TextParameter paramMqttTopic ("Topic", "mqttTopic", mqttConfig.topic, sizeof(mqttConfig.topic));
+
 
 boolean needReset = false;
 boolean connected = false;
@@ -58,6 +74,8 @@ void setup()
 	delay(2000);
 #endif
 
+
+
 	// Setup reading heads
 	DEBUG("Setting up %d configured sensors...", NUM_OF_SENSORS);
 	const SensorConfig *config  = SENSOR_CONFIGS;
@@ -72,14 +90,21 @@ void setup()
 	// Setup WiFi and config stuff
 	DEBUG("Setting up WiFi and config stuff.");
 
-	for (uint8_t i = 0; i < sizeof(params) / sizeof(params[0]); i++)
-	{
-		DEBUG("Adding parameter %s.", params[i].label);
-		iotWebConf.addParameter(&params[i]);
-	}
+	paramgMqtt.addItem(&paramMqttServer);
+	paramgMqtt.addItem(&paramMqttPort);
+	paramgMqtt.addItem(&paramMqttUsername);
+	paramgMqtt.addItem(&paramMqttPassword);
+	iotWebConf.addParameterGroup(&paramgMqtt);
+
 	iotWebConf.setConfigSavedCallback(&configSaved);
 	iotWebConf.setWifiConnectionCallback(&wifiConnected);
-	iotWebConf.setupUpdateServer(&httpUpdater);
+	
+
+	// register callbacks performing Update Server hooks. 
+	iotWebConf.setupUpdateServer(
+    [](const char* updatePath) { httpUpdater.setup(&server, updatePath); },
+    [](const char* userName, char* password) { httpUpdater.updateCredentials(userName, password); }
+	);
 
 	boolean validConfig = iotWebConf.init();
 	if (!validConfig)
