@@ -1,9 +1,17 @@
 #ifndef SENSOR_H
 #define SENSOR_H
 
-#include<SoftwareSerial.h>
+#include <SoftwareSerial.h>
 #include <jled.h>
+#include <IotWebConf.h>
+#include <IotWebConfUsing.h>
+#include <IotWebConfOptionalGroup.h>
 #include "debug.h"
+
+//UI stuff
+const char s0modenames[][8]={"off","draw","feed_in","both"};
+const char s0modevalues[][2]={"o","d","f","b"}; 
+
 
 // SML constants
 const byte START_SEQUENCE[] = {0x1B, 0x1B, 0x1B, 0x1B, 0x01, 0x01, 0x01, 0x01};
@@ -24,26 +32,33 @@ enum State
 class SensorConfig
 {
 public:
-    const uint8_t pin;
+    uint8_t id;
+    char sml_in_pin[2+1];
+    char s0_mode[1+1];
     const char *name;
     const bool numeric_only;
     const bool status_led_enabled;
     const bool status_led_inverted;
     const uint8_t status_led_pin;
     const uint8_t interval;
+    char ppkw[6+1];
+    char s0_out_pin[2+1];
+
+
 };
+
 
 class Sensor
 {
 public:
-    const SensorConfig *config;
-    Sensor(const SensorConfig *config, void (*callback)(byte *buffer, size_t len,  Sensor *sensor))
+    SensorConfig *config;
+    Sensor(SensorConfig *config, void (*callback)(byte *buffer, size_t len,  Sensor *sensor))
     {
         this->config = config;
         DEBUG("Initializing sensor %s...", this->config->name);
         this->callback = callback;
         this->serial = new SoftwareSerial();
-        this->serial->begin(9600, SWSERIAL_8N1, this->config->pin, -1, false);
+        this->serial->begin(9600, SWSERIAL_8N1, atoi(this->config->sml_in_pin), -1, false);
         this->serial->enableTx(false);
         this->serial->enableRx(true);
         DEBUG("Initialized sensor %s.", this->config->name);
@@ -252,6 +267,44 @@ private:
         // Start over
         this->reset_state();
     }
+};
+
+class SensorUiGroup{
+private:
+    char* genid(const char* attr){
+        char *target = (char*)malloc(7+1+1+strlen(attr)+1);
+        sprintf(target, "sensor_%d_%s", this->sensor_config->id, attr);
+        return target;
+    }
+public:
+    Sensor *sensor;
+    SensorConfig *sensor_config;
+    iotwebconf::OptionalParameterGroup *ogroup;
+    iotwebconf::NumberParameter *param_s0_impulses;
+    iotwebconf::NumberParameter *param_sml_in;
+
+    iotwebconf::NumberParameter *param_s0_out;
+    iotwebconf::SelectParameter *param_s0_mode;
+
+
+    SensorUiGroup(uint8_t nr){
+        this->sensor_config=new SensorConfig();
+        this->sensor_config->id=nr;
+        //this->sensor=s;
+        this->ogroup=new iotwebconf::OptionalParameterGroup (genid("sml_sensor"), "SML-Sensor", false);
+        this->param_s0_impulses=new iotwebconf::NumberParameter("Pulses per kWh", genid("pulsesperkwatt"), (*(sensor_config)).ppkw, 6+1, "1", "1..10000", "min='1' max='10000' step='1'");
+        this->param_s0_out=new iotwebconf::NumberParameter("Pin for S0 out", genid("s0_out"),(*(sensor_config)).s0_out_pin, 2+1, "1", "1..30", "min='1' max='30' step='1'");
+        this->param_sml_in=new iotwebconf::NumberParameter("Pin for SML input",genid("sml_in"), (*(sensor_config)).sml_in_pin, 2+1, "1", "1..30", "min='1' max='30' step='1'");
+        this->param_s0_mode=new iotwebconf::SelectParameter("Mode of the S0 Output", genid("s0mode"), sensor_config->s0_mode, 2, (char*)s0modevalues, (char*)s0modenames, 4, 8,"o");
+
+        this->ogroup->addItem(param_sml_in);
+        this->ogroup->addItem(param_s0_out);
+        this->ogroup->addItem(param_s0_mode);
+
+        this->ogroup->addItem(param_s0_impulses);
+
+    }
+
 };
 
 #endif

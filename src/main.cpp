@@ -5,6 +5,7 @@
 #include "Sensor.h"
 #include <IotWebConf.h>
 #include <IotWebConfUsing.h>
+#include <IotWebConfOptionalGroup.h>
 #include "MqttPublisher.h"
 #include "EEPROM.h"
 #include <ESP8266WiFi.h>
@@ -14,6 +15,9 @@
 #elif defined(ESP32)
 # include <IotWebConfESP32HTTPUpdateServer.h>
 #endif
+
+
+#define STRING_LEN 128
 
 std::list<Sensor*> *sensors = new std::list<Sensor*>();
 
@@ -36,18 +40,22 @@ MqttPublisher publisher;
 
 IotWebConf iotWebConf(WIFI_AP_SSID, &dnsServer, &server, WIFI_AP_DEFAULT_PASSWORD, CONFIG_VERSION);
 
-IotWebConfParameterGroup paramgMqtt ("MQTT", "MQTT");
-
+iotwebconf::ParameterGroup paramgMqtt ("MQTT", "MQTT");
 iotwebconf::TextParameter paramMqttServer ("Server", "mqttServer", mqttConfig.server, sizeof(mqttConfig.server));
 iotwebconf::TextParameter paramMqttPort ("Port", "mqttPort", mqttConfig.port, sizeof(mqttConfig.port));
 iotwebconf::TextParameter paramMqttUsername ("Username", "mqttUsername", mqttConfig.username, sizeof(mqttConfig.username));
 iotwebconf::TextParameter paramMqttPassword ("Password", "mqttPassword", mqttConfig.password, sizeof(mqttConfig.password));
 iotwebconf::TextParameter paramMqttTopic ("Topic", "mqttTopic", mqttConfig.topic, sizeof(mqttConfig.topic));
 
+iotwebconf::OptionalGroupHtmlFormatProvider optionalGroupHtmlFormatProvider;
 
 boolean needReset = false;
 boolean connected = false;
 
+
+void process_s0_out(Sensor *sensor, sml_file *file){
+	//TODO
+}
 
 void process_message(byte *buffer, size_t len, Sensor *sensor)
 {
@@ -56,8 +64,14 @@ void process_message(byte *buffer, size_t len, Sensor *sensor)
 
 	DEBUG_SML_FILE(file);
 
+	//mqtt
 	if (connected) {
 		publisher.publish(sensor, file);
+	}
+
+	//S0-output
+	if(strcmp(sensor->config->s0_mode,"o")!=0){
+		process_s0_out(sensor,file);
 	}
 
 	// free the malloc'd memory
@@ -75,13 +89,24 @@ void setup()
 #endif
 
 
+	paramgMqtt.addItem(&paramMqttServer);
+	paramgMqtt.addItem(&paramMqttPort);
+	paramgMqtt.addItem(&paramMqttUsername);
+	paramgMqtt.addItem(&paramMqttPassword);
+	iotWebConf.addParameterGroup(&paramgMqtt);
+	iotWebConf.setHtmlFormatProvider(&optionalGroupHtmlFormatProvider);
+
 
 	// Setup reading heads
 	DEBUG("Setting up %d configured sensors...", NUM_OF_SENSORS);
-	const SensorConfig *config  = SENSOR_CONFIGS;
-	for (uint8_t i = 0; i < NUM_OF_SENSORS; i++, config++)
+	//SensorConfig *config  = SENSOR_CONFIGS;
+	for (uint8_t i = 0; i < NUM_OF_SENSORS; i++)
 	{
-		Sensor *sensor = new Sensor(config, process_message);
+		
+		SensorUiGroup sg(i);
+		Sensor *sensor = new Sensor(sg.sensor_config, process_message);
+		iotWebConf.addParameterGroup(sg.ogroup);
+
 		sensors->push_back(sensor);
 	}
 	DEBUG("Sensor setup done.");
@@ -90,11 +115,6 @@ void setup()
 	// Setup WiFi and config stuff
 	DEBUG("Setting up WiFi and config stuff.");
 
-	paramgMqtt.addItem(&paramMqttServer);
-	paramgMqtt.addItem(&paramMqttPort);
-	paramgMqtt.addItem(&paramMqttUsername);
-	paramgMqtt.addItem(&paramMqttPassword);
-	iotWebConf.addParameterGroup(&paramgMqtt);
 
 	iotWebConf.setConfigSavedCallback(&configSaved);
 	iotWebConf.setWifiConnectionCallback(&wifiConnected);
@@ -138,8 +158,7 @@ void loop()
 		yield();
 	}
 
-	if (needReset)
-	{
+	if (needReset){
 		// Doing a chip reset caused by config changes
 		DEBUG("Rebooting after 1 second.");
 		delay(1000);
