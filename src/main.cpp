@@ -65,13 +65,10 @@ void process_message(sml_file *file, Sensor *sensor)
 
 	DEBUG_SML_FILE(file);
 
-	//mqtt
-	if (connected) {
-		publisher.publish(sensor, file);
-	}
+	publisher.publish(sensor, file);
 
 	// free the malloc'd memory
-	
+	sml_file_free(file);
 }
 
 void setup()
@@ -144,13 +141,8 @@ void setup()
 
 void loop()
 {
-	// Publisher
-	if (connected) {
-		publisher.loop();
-		yield();
-	}
-
-	if (needReset){
+	if (needReset)
+	{
 		// Doing a chip reset caused by config changes
 		DEBUG("Rebooting after 1 second.");
 		delay(1000);
