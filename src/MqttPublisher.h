@@ -26,7 +26,6 @@ public:
     uint8_t lastCharOfTopic = strlen(config.topic) - 1;
     baseTopic = String(config.topic) + (lastCharOfTopic >= 0 && config.topic[lastCharOfTopic] == '/' ? "" : "/");
 
-    client.begin(config.server, atoi(config.port), net);
   }
 
   void connect()

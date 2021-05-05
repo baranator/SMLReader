@@ -19,7 +19,8 @@
 
 #define STRING_LEN 128
 
-std::list<Sensor*> *sensors = new std::list<Sensor*>();
+SensorUiGroup *sensors[NUM_OF_SENSORS];
+//std::list<Sensor*> *sensors = new std::list<Sensor*>();
 
 void wifiConnected();
 void configSaved();
@@ -57,10 +58,10 @@ void process_s0_out(Sensor *sensor, sml_file *file){
 	//TODO
 }
 
-void process_message(byte *buffer, size_t len, Sensor *sensor)
+void process_message(sml_file *file, Sensor *sensor)
 {
 	// Parse
-	sml_file *file = sml_file_parse(buffer + 8, len - 16);
+	
 
 	DEBUG_SML_FILE(file);
 
@@ -69,13 +70,8 @@ void process_message(byte *buffer, size_t len, Sensor *sensor)
 		publisher.publish(sensor, file);
 	}
 
-	//S0-output
-	if(strcmp(sensor->config->s0_mode,"o")!=0){
-		process_s0_out(sensor,file);
-	}
-
 	// free the malloc'd memory
-	sml_file_free(file);
+	
 }
 
 void setup()
@@ -100,14 +96,10 @@ void setup()
 	// Setup reading heads
 	DEBUG("Setting up %d configured sensors...", NUM_OF_SENSORS);
 	//SensorConfig *config  = SENSOR_CONFIGS;
-	for (uint8_t i = 0; i < NUM_OF_SENSORS; i++)
-	{
-		
-		SensorUiGroup sg(i);
-		Sensor *sensor = new Sensor(sg.sensor_config, process_message);
-		iotWebConf.addParameterGroup(sg.ogroup);
-
-		sensors->push_back(sensor);
+	for (uint8_t i = 0; i < NUM_OF_SENSORS; i++){
+		sensors[i] = new SensorUiGroup(i);
+		sensors[i]->sensor = new Sensor(sensors[i]->sensor_config, process_message);
+		iotWebConf.addParameterGroup(sensors[i]->ogroup);
 	}
 	DEBUG("Sensor setup done.");
 
@@ -166,8 +158,9 @@ void loop()
 	}
 
 	// Execute sensor state machines
-	for (std::list<Sensor*>::iterator it = sensors->begin(); it != sensors->end(); ++it){
-		(*it)->loop();
+	for (int i=0; i<NUM_OF_SENSORS;i++){
+		if(sensors[i]->ogroup->isActive())
+			sensors[i]->sensor->loop();
 	}
 	iotWebConf.doLoop();
 	yield();
